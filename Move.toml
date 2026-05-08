@@ -1,0 +1,6 @@
+[package]
+name = "sorted_map"
+edition = "2024"
+
+[addresses]
+sorted_map = "0x0"
