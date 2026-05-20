@@ -1,8 +1,17 @@
-/// Generic, ordered, probabilistic associative container (skip-list backed).
+/// Generic, ordered associative container backed by a deterministically-
+/// balanced skip list.
 ///
 /// SortedMap is generic over both key type `K` and value type `V`. Ordering is
 /// supplied by a `<` comparator lambda passed at each call site (or implicitly
 /// `*a < *b` via the non-`_by` macro wrappers, suitable for unsigned-int keys).
+///
+/// **Level promotion.** A monotonic insertion counter (`next_id`) determines
+/// every node's height: `level = 1 + (largest k such that p_inv^k divides
+/// next_id)`. This yields an *exact* geometric distribution — exactly one
+/// node in every `p_inv` reaches level ≥ 2, one in every `p_inv^2` reaches
+/// level ≥ 3, and so on — so search is worst-case `O(log_{p_inv} N)`, not
+/// expected. No randomness, no RNG state, no level-distribution attack
+/// surface.
 ///
 /// **Comparator contract.** Every call against the same instance MUST pass a
 /// lambda that defines the same total order. Equality is derived as
@@ -16,9 +25,8 @@ use sui::table::{Self, Table};
 
 const EInvalidMaxLevel: u64 = 0;
 const EInvalidPInv: u64 = 1;
-// Abort code 2 = key not found (`borrow!` / `borrow_mut!`). Inlined as the
-// literal `2` inside macros because module-private constants can't be
-// referenced from expansions in other modules.
+// Abort code used inside borrow_by! / borrow_mut_by! macros. The compiler
+// does not count macro-body references as "uses", hence the allow attribute.
 #[allow(unused_const)]
 const EKeyNotFound: u64 = 2;
 const ENotEmpty: u64 = 3;
@@ -40,12 +48,13 @@ public struct SortedMap<K: copy + drop + store, V: store> has store {
     level: u8,
     /// Configured maximum level a node may occupy. Set at construction.
     max_level: u8,
-    /// Probability denominator for level promotion. Each level promotion
-    /// succeeds with probability `1 / p_inv`.
+    /// Divisor for level promotion. The k-th level is reached iff `p_inv^k`
+    /// divides the insertion counter, so exactly one node in every `p_inv`
+    /// insertions occupies level ≥ 2.
     p_inv: u64,
-    /// Embedded RNG for level generation. Deterministic from the seed passed
-    /// to `new`.
-    rng: Random,
+    /// Monotonic insertion counter. Incremented once per `splice_new` and
+    /// fed to `next_level` to deterministically assign node heights.
+    next_id: u64,
 }
 
 public struct Node<K: copy + drop + store, V: store> has store {
@@ -71,7 +80,6 @@ public struct Metadata has copy, drop, store {
 // === Lifecycle ===
 
 public fun new<K: copy + drop + store, V: store>(
-    seed: u64,
     max_level: u8,
     p_inv: u64,
     ctx: &mut TxContext,
@@ -91,7 +99,7 @@ public fun new<K: copy + drop + store, V: store>(
         level: 1,
         max_level,
         p_inv,
-        rng: random::new(seed),
+        next_id: 0,
     }
 }
 
@@ -104,7 +112,7 @@ public fun destroy_empty<K: copy + drop + store, V: store>(map: SortedMap<K, V>)
         level: _,
         max_level: _,
         p_inv: _,
-        rng: _,
+        next_id: _,
     } = map;
     nodes.destroy_empty();
 }
@@ -192,15 +200,18 @@ public fun node_prev<K: copy + drop + store, V: store>(map: &SortedMap<K, V>, ke
 
 // === Internal mutators ===
 
-fun random_level<K: copy + drop + store, V: store>(map: &mut SortedMap<K, V>): u8 {
+/// Deterministic level assignment. Increments the insertion counter and
+/// returns `1 + (largest k such that p_inv^k divides next_id)`, capped at
+/// `max_level`. This yields an exact geometric distribution: exactly one
+/// node in every `p_inv` reaches level ≥ 2, one in every `p_inv^2` reaches
+/// level ≥ 3, etc.
+fun next_level<K: copy + drop + store, V: store>(map: &mut SortedMap<K, V>): u8 {
+    map.next_id = map.next_id + 1;
+    let mut c = map.next_id;
     let mut lvl: u8 = 1;
-    while (lvl < map.max_level) {
-        let r = map.rng.rand();
-        if (r % map.p_inv == 0) {
-            lvl = lvl + 1;
-        } else {
-            break
-        };
+    while (lvl < map.max_level && c % map.p_inv == 0) {
+        lvl = lvl + 1;
+        c = c / map.p_inv;
     };
     lvl
 }
@@ -223,7 +234,7 @@ public fun splice_new<K: copy + drop + store, V: store>(
     value: V,
     update: vector<Option<K>>,
 ) {
-    let new_lvl = random_level(map);
+    let new_lvl = next_level(map);
 
     // Build node's nexts vector
     let mut nexts: vector<Option<K>> = vector[];
@@ -483,10 +494,10 @@ public macro fun borrow_by<$K: copy + drop + store, $V: store>(
     let map = $map;
     let target = $key;
     let succ0 = ceiling_id!(map, target, $lt);
-    assert!(succ0.is_some(), 2);
+    assert!(succ0.is_some(), EKeyNotFound);
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, 2);
+    assert!(is_equal, EKeyNotFound);
     node_value_at(map, skey)
 }
 
@@ -511,10 +522,10 @@ public macro fun borrow_mut_by<$K: copy + drop + store, $V: store>(
     } else {
         head_at(map, 0)
     };
-    assert!(succ0.is_some(), 2);
+    assert!(succ0.is_some(), EKeyNotFound);
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, 2);
+    assert!(is_equal, EKeyNotFound);
     node_value_at_mut(map, skey)
 }
 
@@ -642,21 +653,4 @@ public macro fun find_prev<$K: copy + drop + store, $V: store>(
     $include: bool,
 ): Option<$K> {
     find_prev_by!($map, $key, $include, |a, b| *a < *b)
-}
-
-struct Random has copy, drop, store {
-    seed: u64,
-}
-
-fun new(seed: u64): Random {
-    Random { seed }
-}
-
-fun rand(r: &mut Random): u64 {
-    r.seed = (
-        (
-            ((9223372036854775783u128 * ((r.seed as u128)) + 999983) >> 1) & 0x0000000000000000ffffffffffffffff,
-        ) as u64,
-    );
-    r.seed
 }
