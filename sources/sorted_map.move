@@ -11,7 +11,6 @@
 module sorted_map::sorted_map;
 
 use sui::table::{Self, Table};
-use sorted_map::random::{Self, Random};
 
 // === Errors ===
 
@@ -140,8 +139,11 @@ public fun metadata<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): Me
 }
 
 public fun metadata_length(m: &Metadata): u64 { m.length }
+
 public fun metadata_level(m: &Metadata): u8 { m.level }
+
 public fun metadata_max_level(m: &Metadata): u8 { m.max_level }
+
 public fun metadata_p_inv(m: &Metadata): u64 { m.p_inv }
 
 // === Macro-internal accessors ===
@@ -157,10 +159,7 @@ public fun cap_level<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): u
     map.max_level
 }
 
-public fun head_at<K: copy + drop + store, V: store>(
-    map: &SortedMap<K, V>,
-    level: u8,
-): Option<K> {
+public fun head_at<K: copy + drop + store, V: store>(map: &SortedMap<K, V>, level: u8): Option<K> {
     *map.head.borrow(level as u64)
 }
 
@@ -172,17 +171,11 @@ public fun node_next_at<K: copy + drop + store, V: store>(
     *map.nodes.borrow(key).nexts.borrow(level as u64)
 }
 
-public fun node_key_at<K: copy + drop + store, V: store>(
-    map: &SortedMap<K, V>,
-    key: K,
-): &K {
+public fun node_key_at<K: copy + drop + store, V: store>(map: &SortedMap<K, V>, key: K): &K {
     &map.nodes.borrow(key).key
 }
 
-public fun node_value_at<K: copy + drop + store, V: store>(
-    map: &SortedMap<K, V>,
-    key: K,
-): &V {
+public fun node_value_at<K: copy + drop + store, V: store>(map: &SortedMap<K, V>, key: K): &V {
     &map.nodes.borrow(key).value
 }
 
@@ -193,10 +186,7 @@ public fun node_value_at_mut<K: copy + drop + store, V: store>(
     &mut map.nodes.borrow_mut(key).value
 }
 
-public fun node_prev<K: copy + drop + store, V: store>(
-    map: &SortedMap<K, V>,
-    key: K,
-): Option<K> {
+public fun node_prev<K: copy + drop + store, V: store>(map: &SortedMap<K, V>, key: K): Option<K> {
     map.nodes.borrow(key).prev
 }
 
@@ -652,4 +642,21 @@ public macro fun find_prev<$K: copy + drop + store, $V: store>(
     $include: bool,
 ): Option<$K> {
     find_prev_by!($map, $key, $include, |a, b| *a < *b)
+}
+
+struct Random has copy, drop, store {
+    seed: u64,
+}
+
+fun new(seed: u64): Random {
+    Random { seed }
+}
+
+fun rand(r: &mut Random): u64 {
+    r.seed = (
+        (
+            ((9223372036854775783u128 * ((r.seed as u128)) + 999983) >> 1) & 0x0000000000000000ffffffffffffffff,
+        ) as u64,
+    );
+    r.seed
 }
