@@ -25,8 +25,9 @@ use sui::table::{Self, Table};
 
 const EInvalidMaxLevel: u64 = 0;
 const EInvalidPInv: u64 = 1;
-// Abort code used inside borrow_by! / borrow_mut_by! macros. The compiler
-// does not count macro-body references as "uses", hence the allow attribute.
+// Value 2 is inlined literally in borrow_by!/borrow_mut_by! macro bodies because
+// Move constants are always module-private and cannot be referenced at macro
+// expansion sites in other modules.
 #[allow(unused_const)]
 const EKeyNotFound: u64 = 2;
 const ENotEmpty: u64 = 3;
@@ -494,10 +495,10 @@ public macro fun borrow_by<$K: copy + drop + store, $V: store>(
     let map = $map;
     let target = $key;
     let succ0 = ceiling_id!(map, target, $lt);
-    assert!(succ0.is_some(), EKeyNotFound);
+    assert!(succ0.is_some(), 2); // EKeyNotFound
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, EKeyNotFound);
+    assert!(is_equal, 2); // EKeyNotFound
     node_value_at(map, skey)
 }
 
@@ -522,10 +523,10 @@ public macro fun borrow_mut_by<$K: copy + drop + store, $V: store>(
     } else {
         head_at(map, 0)
     };
-    assert!(succ0.is_some(), EKeyNotFound);
+    assert!(succ0.is_some(), 2); // EKeyNotFound
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, EKeyNotFound);
+    assert!(is_equal, 2); // EKeyNotFound
     node_value_at_mut(map, skey)
 }
 
