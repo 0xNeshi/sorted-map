@@ -34,7 +34,11 @@ const ENotEmpty: u64 = 3;
 
 // === Structs ===
 
-public struct SortedMap<K: copy + drop + store, V: store> has store {
+public struct SortedMap<K: copy + drop + store, V: store> has key, store {
+    /// Identity. Present so the map can stand alone as a shared/owned Sui
+    /// object; the `store` ability still allows it to be embedded as a field
+    /// in a consumer-defined object. Consumers pick the shape.
+    id: UID,
     /// Arena of all live nodes, keyed by `K`. Each entry lives as a dynamic
     /// field — only nodes touched on the search path are loaded per
     /// transaction.
@@ -94,6 +98,7 @@ public fun new<K: copy + drop + store, V: store>(
         i = i + 1;
     };
     SortedMap {
+        id: object::new(ctx),
         nodes: table::new(ctx),
         head,
         tail: option::none(),
@@ -107,6 +112,7 @@ public fun new<K: copy + drop + store, V: store>(
 public fun destroy_empty<K: copy + drop + store, V: store>(map: SortedMap<K, V>) {
     assert!(map.nodes.is_empty(), ENotEmpty);
     let SortedMap {
+        id,
         nodes,
         head: _,
         tail: _,
@@ -115,6 +121,7 @@ public fun destroy_empty<K: copy + drop + store, V: store>(map: SortedMap<K, V>)
         p_inv: _,
         next_id: _,
     } = map;
+    id.delete();
     nodes.destroy_empty();
 }
 
@@ -495,10 +502,10 @@ public macro fun borrow_by<$K: copy + drop + store, $V: store>(
     let map = $map;
     let target = $key;
     let succ0 = ceiling_id!(map, target, $lt);
-    assert!(succ0.is_some(), EKeyNotFound); // EKeyNotFound
+    assert!(succ0.is_some(), EKeyNotFound);
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, EKeyNotFound); // EKeyNotFound
+    assert!(is_equal, EKeyNotFound);
     node_value_at(map, skey)
 }
 
@@ -523,10 +530,10 @@ public macro fun borrow_mut_by<$K: copy + drop + store, $V: store>(
     } else {
         head_at(map, 0)
     };
-    assert!(succ0.is_some(), EKeyNotFound); // EKeyNotFound
+    assert!(succ0.is_some(), EKeyNotFound);
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, EKeyNotFound); // EKeyNotFound
+    assert!(is_equal, EKeyNotFound);
     node_value_at_mut(map, skey)
 }
 

@@ -4,6 +4,10 @@
 /// within a price level). The struct key is why the `_by` macros are needed —
 /// there is no built-in `<` on a struct, so a comparator lambda is supplied
 /// at every call site.
+///
+/// `OrderBook` is `has store`-only because it also carries `next_seq` state
+/// the map cannot hold. This is the case where wrapping is unavoidable even
+/// though `SortedMap` itself is `has key, store`.
 module sorted_map::order_book;
 
 use sorted_map::sorted_map::{Self, SortedMap};

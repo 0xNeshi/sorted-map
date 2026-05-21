@@ -2,6 +2,13 @@
 ///
 /// Ticks are keyed by u64 index (price × 1000 to avoid floats).
 /// Uses the non-`_by` uint macros — the natural fit when keys are primitives.
+///
+/// Demonstrates the *embedded* shape: `TickRegistry` is `has store` only and
+/// wraps `SortedMap<u64, TickInfo>` as a field. Because `SortedMap` is
+/// `has key, store`, the alternative — using `SortedMap<u64, TickInfo>`
+/// directly as a top-level shared object — is also supported by the library;
+/// the embedded shape is chosen here to show how to add domain logic around
+/// the map.
 module sorted_map::tick_registry;
 
 use sorted_map::sorted_map::{Self, SortedMap};
