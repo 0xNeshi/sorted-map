@@ -23,14 +23,14 @@ use sui::table::{Self, Table};
 
 // === Errors ===
 
-const EInvalidMaxLevel: u64 = 0;
-const EInvalidPInv: u64 = 1;
-// Value 2 is inlined literally in borrow_by!/borrow_mut_by! macro bodies because
-// Move constants are always module-private and cannot be referenced at macro
-// expansion sites in other modules.
-#[allow(unused_const)]
-const EKeyNotFound: u64 = 2;
-const ENotEmpty: u64 = 3;
+#[error(code = 0)]
+const EInvalidMaxLevel: vector<u8> = "Invalid Max Level";
+#[error(code = 1)]
+const EInvalidPInv: vector<u8> = "Invalid P-Inv";
+#[error(code = 2)]
+const EKeyNotFound: vector<u8> = "Key Not Found";
+#[error(code = 3)]
+const ENotEmpty: vector<u8> = "Not Empty";
 
 // === Structs ===
 
@@ -73,13 +73,6 @@ public struct Node<K: copy + drop + store, V: store> has store {
     /// Previous node's key at level 0. `none` iff this node has the smallest
     /// key.
     prev: Option<K>,
-}
-
-public struct Metadata has copy, drop, store {
-    length: u64,
-    level: u8,
-    max_level: u8,
-    p_inv: u64,
 }
 
 // === Lifecycle ===
@@ -145,35 +138,25 @@ public fun tail<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): Option
     map.tail
 }
 
-public fun metadata<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): Metadata {
-    Metadata {
-        length: map.nodes.length(),
-        level: map.level,
-        max_level: map.max_level,
-        p_inv: map.p_inv,
-    }
+/// Current top-of-stack level (1..=max_level). Grows as taller nodes are inserted.
+public fun current_level<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): u8 {
+    map.level
 }
 
-public fun metadata_length(m: &Metadata): u64 { m.length }
+/// Maximum permitted level, fixed at construction.
+public fun cap_level<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): u8 {
+    map.max_level
+}
 
-public fun metadata_level(m: &Metadata): u8 { m.level }
-
-public fun metadata_max_level(m: &Metadata): u8 { m.max_level }
-
-public fun metadata_p_inv(m: &Metadata): u64 { m.p_inv }
+/// Inverse promotion probability, fixed at construction.
+public fun p_inv_of<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): u64 {
+    map.p_inv
+}
 
 // === Macro-internal accessors ===
 //
 // Public because Move 2024 macros expand at the call site and must use only
 // public symbols. Treat as library-internal.
-
-public fun current_level<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): u8 {
-    map.level
-}
-
-public fun cap_level<K: copy + drop + store, V: store>(map: &SortedMap<K, V>): u8 {
-    map.max_level
-}
 
 public fun head_at<K: copy + drop + store, V: store>(map: &SortedMap<K, V>, level: u8): Option<K> {
     *map.head.borrow(level as u64)
@@ -224,11 +207,19 @@ fun next_level<K: copy + drop + store, V: store>(map: &mut SortedMap<K, V>): u8 
     lvl
 }
 
-public fun replace_value_at<K: copy + drop + store, V: store>(
+/// Aborts with `EKeyNotFound` when `found` is false. Exists so macro bodies
+/// expanded in other modules can raise this error without referencing the
+/// module-private constant.
+public fun assert_key_found(found: bool) {
+    assert!(found, EKeyNotFound);
+}
+
+public fun replace<K: copy + drop + store, V: store>(
     map: &mut SortedMap<K, V>,
     key: K,
     new_value: V,
 ): V {
+    assert!(map.nodes.contains(key), EKeyNotFound);
     let Node { key: k, value: old_value, nexts, prev } = map.nodes.remove(key);
     map.nodes.add(key, Node { key: k, value: new_value, nexts, prev });
     old_value
@@ -418,7 +409,7 @@ public macro fun insert_by<$K: copy + drop + store, $V: store>(
     };
 
     if (hit_existing) {
-        option::some(replace_value_at(map, *succ0.borrow(), new_value))
+        option::some(replace(map, *succ0.borrow(), new_value))
     } else {
         splice_new(map, new_key, new_value, path);
         option::none()
@@ -502,10 +493,10 @@ public macro fun borrow_by<$K: copy + drop + store, $V: store>(
     let map = $map;
     let target = $key;
     let succ0 = ceiling_id!(map, target, $lt);
-    assert!(succ0.is_some(), EKeyNotFound);
+    assert_key_found(succ0.is_some());
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, EKeyNotFound);
+    assert_key_found(is_equal);
     node_value_at(map, skey)
 }
 
@@ -530,10 +521,10 @@ public macro fun borrow_mut_by<$K: copy + drop + store, $V: store>(
     } else {
         head_at(map, 0)
     };
-    assert!(succ0.is_some(), EKeyNotFound);
+    assert_key_found(succ0.is_some());
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, EKeyNotFound);
+    assert_key_found(is_equal);
     node_value_at_mut(map, skey)
 }
 
