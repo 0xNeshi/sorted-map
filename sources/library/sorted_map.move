@@ -495,10 +495,10 @@ public macro fun borrow_by<$K: copy + drop + store, $V: store>(
     let map = $map;
     let target = $key;
     let succ0 = ceiling_id!(map, target, $lt);
-    assert!(succ0.is_some(), 2); // EKeyNotFound
+    assert!(succ0.is_some(), EKeyNotFound); // EKeyNotFound
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, 2); // EKeyNotFound
+    assert!(is_equal, EKeyNotFound); // EKeyNotFound
     node_value_at(map, skey)
 }
 
@@ -523,10 +523,10 @@ public macro fun borrow_mut_by<$K: copy + drop + store, $V: store>(
     } else {
         head_at(map, 0)
     };
-    assert!(succ0.is_some(), 2); // EKeyNotFound
+    assert!(succ0.is_some(), EKeyNotFound); // EKeyNotFound
     let skey = *succ0.borrow();
     let is_equal = !$lt(&skey, target) && !$lt(target, &skey);
-    assert!(is_equal, 2); // EKeyNotFound
+    assert!(is_equal, EKeyNotFound); // EKeyNotFound
     node_value_at_mut(map, skey)
 }
 
