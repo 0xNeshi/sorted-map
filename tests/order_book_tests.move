@@ -29,7 +29,7 @@ fun test_order_book_lifecycle() {
     assert!(order_book::next_order(&book, &k200) == option::some(k300));
     assert!(order_book::next_order(&book, &k300).is_none());
 
-    // first_at_or_above: exact match, between prices, below all
+    // first_at_or_above: exact match, between prices, below all, above all
     assert!(order_book::first_at_or_above(&book, 200) == option::some(k200));
     assert!(order_book::first_at_or_above(&book, 150) == option::some(k200));
     assert!(order_book::first_at_or_above(&book, 50) == option::some(k100a));
